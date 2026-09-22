@@ -1,0 +1,17 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Generated reports
+output/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Local/private migration data
+private/
+real-vms/
+*.log

@@ -1,0 +1,42 @@
+.encoding = "UTF-8"
+config.version = "8"
+virtualHW.version = "19"
+
+displayName = "prod-app01"
+guestOS = "ubuntu-64"
+firmware = "efi"
+
+numvcpus = "8"
+memSize = "16384"
+
+scsi0.present = "TRUE"
+scsi0.virtualDev = "pvscsi"
+
+scsi0:0.present = "TRUE"
+scsi0:0.fileName = "prod-app01-system-000003.vmdk"
+scsi0:0.deviceType = "scsi-hardDisk"
+
+scsi0:0.present = "TRUE"
+scsi0:0.fileName = "ist_nur_ein_test.vmdk"
+
+sata0:0.present ="TRUE"
+
+
+scsi0:1.present = "TRUE"
+scsi0:1.fileName = "prod-app01-data.vmdk"
+scsi0:1.deviceType = "scsi-hardDisk"
+
+ethernet0.present = "TRUE"
+ethernet0.virtualDev = "vmxnet3"
+ethernet0.addressType = "static"
+ethernet0.address = "00:0c:29:8a:31:7c"
+ethernet0.networkName = "Production-VLAN42"
+
+usb.present = "TRUE"
+sound.present = "FALSE"
+
+tools.syncTime = "TRUE"
+tools.upgrade.policy = "manual"
+
+efi.secureBoot.enabled = "TRUE"
+

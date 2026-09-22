@@ -1,0 +1,165 @@
+rules:
+  hardware:
+    firmware:
+      efi:
+        recommendations:
+          - type: migration
+            severity: recommendation
+            message: "Preserve UEFI firmware and use OVMF on Proxmox."
+            reason: "The VMware VM is configured to boot using EFI."
+            help_topic: efi_ovmf
+      bios:
+        recommendations:
+          - type: migration
+            severity: recommendation
+            message: "Preserve legacy BIOS and use SeaBIOS on Proxmox."
+            reason: "Preserving the existing boot architecture reduces migration risk."
+            help_topic: firmware_bios
+
+          - type: modernization
+            severity: info
+            message: "Consider a separate BIOS-to-UEFI conversion after migration."
+            reason: "Firmware modernization should be treated separately from the hypervisor migration."
+            help_topic: bios_to_uefi
+
+    cpu_count:
+      default:
+        recommendations:
+          - type: migration
+            severity: info
+            message: "Preserve the current allocation of {value} vCPU."
+            reason: "No runtime performance data is available to justify CPU rightsizing during migration."
+            help_topic: proxmox_cpu 
+
+    memory_mb:
+      default:
+        recommendations:
+          - type: migration
+            severity: info
+            message: "Preserve the current memory allocation of {value} MB."
+            reason: "No runtime memory utilization data is available to justify memory rightsizing during migration."
+            help_topic: proxmox_memory
+
+
+  storage:
+    controller_type:
+      pvscsi:
+        recommendations:
+          - type: migration
+            severity: recommendation
+            message: "Replace VMware PVSCSI with the proposed Proxmox controller '{preferred_controller}'."
+            reason: "PVSCSI is a VMware paravirtualized storage controller and should be replaced with a suitable controller on the Proxmox/KVM target."
+            help_topic: storage_controller
+
+    disk_format:
+      vmdk:
+        general:
+          recommendations:
+            - type: validation
+              severity: info
+              message: "Inspect VMDK '{source_file}' for backing files or snapshot dependencies before conversion."
+              reason: "The VMX configuration alone cannot reliably determine whether a VMDK depends on a backing chain."
+              help_topic: vmdk_inspection
+
+        snapshot_candidate:
+          recommendations:
+            - type: validation
+              severity: warning
+              message: "VMDK '{source_file}' has a filename commonly used for VMware snapshot disks. Verify the complete backing chain before conversion."
+              reason: "The filename indicates a possible snapshot disk, but the actual backing relationship must be verified from the VMDK metadata."
+              help_topic: vmdk_backing_chain
+
+        image:
+          recommendations:
+            - type: migration
+              severity: recommendation
+              message: "Convert VMware VMDK '{source_file}' to QCOW2 for file-based Proxmox storage."
+              reason: "The preferred target storage is image-based and QCOW2 is suitable for file-based QEMU/Proxmox storage."
+              help_topic: vmdk_to_qcow2
+        
+        local-lvm:
+          recommendations:
+            - type: migration
+              severity: recommendation
+              message: "Import VMware VMDK '{source_file}' into the Proxmox LVM-thin storage  '{preferred_storage}'."
+              reason: "The preferred target storage is block-based LVM-thin storage, so the VMDK should be imported as a Proxmox-managed logical volume rather than converted to a QCOW2 file."
+              help_topic: vmdk_to_local_lvm
+    device_validation:
+      missing_file:
+        recommendations:
+          - type: validation
+            severity: warning
+            message: "Storage device '{device_id}' is marked as present, but no backing file is defined in the VMX."
+            reason: "The storage device cannot be migrated reliably until its backing storage has been identified."
+            help_topic: storage_missing_file
+
+  network:
+    nic_type:
+      vmxnet3:
+        recommendations:
+          - type: migration
+            severity: recommendation
+            message: "Replace VMware VMXNET3 with the proposed Proxmox NIC type '{preferred_nic}'."
+            reason: "VMXNET3 is a VMware paravirtualized network adapter and should be replaced with a suitable network adapter on the Proxmox/KVM target."
+            help_topic: network_adapter
+
+    static_mac:
+      recommendations:
+        - type: migration
+          severity: info
+          message: "Preserve the static MAC address '{mac}' during migration."
+          reason: "Preserving the MAC address reduces the risk of changes to guest network configuration, DHCP reservations, firewall rules, or other MAC-dependent services."
+          help_topic: preserve_mac
+
+    network_mapping:
+      recommendations:
+        - type: validation
+          severity: warning
+          message: "Map VMware network '{network_name}' to the appropriate Proxmox bridge and VLAN configuration."
+          reason: "A VMware network name does not reliably identify the corresponding Proxmox bridge or VLAN tag."
+          help_topic: network_mapping            
+
+  misc:
+    vmware_tools:
+      "true":
+        recommendations:
+          - type: post_migration
+            severity: recommendation
+            message: "Check the guest for installed VMware Tools after successful migration and remove them when they are no longer required."
+            reason: "The VMX contains VMware Tools-specific settings. VMware Tools may still be installed in the guest but are no longer required after migration to Proxmox/KVM."
+            help_topic: remove_vmware_tools
+
+          - type: post_migration
+            severity: recommendation
+            message: "Install and enable the QEMU Guest Agent after migration."
+            reason: "The QEMU Guest Agent provides guest integration for Proxmox/KVM and replaces relevant VMware guest integration functionality."
+            help_topic: qemu_guest_agent
+
+    usb_present:
+      "true":
+        recommendations:
+          - type: validation
+            severity: warning
+            message: "Verify whether USB support or USB passthrough is required by the guest before migration."
+            reason: "The VMX enables USB support, but this does not prove that a physical USB device is required by the workload."
+            help_topic: usb_passthrough
+
+
+
+dependencies:
+
+  - when:
+      fact: efi_secure_boot
+      equals: true
+
+    requires:
+      fact: firmware
+      equals: efi
+
+    recommendation:
+      type: migration
+      severity: warning
+      message: "Secure Boot is enabled, but the VM is configured for legacy BIOS."
+      reason: "Secure Boot requires EFI/UEFI firmware."
+      help_topic: secure_boot
+    

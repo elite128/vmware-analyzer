@@ -1,0 +1,987 @@
+help:
+
+  # ---------------------------------------------------------------------------
+  # FIRMWARE
+  # ---------------------------------------------------------------------------
+
+  firmware_bios:
+    title: Preserve Legacy BIOS Firmware
+    category: Firmware
+    phase: Migration
+
+    description: >
+      Preserve legacy BIOS firmware when the VMware source VM is configured
+      for BIOS boot. Changing the firmware type during the hypervisor migration
+      introduces an additional and usually unnecessary migration variable.
+
+    checks:
+      - description: Inspect the VMware firmware setting.
+        command: "grep -Ei '^firmware' <vm.vmx>"
+
+      - description: Inspect the resulting Proxmox VM configuration.
+        command: "qm config <VMID>"
+
+    examples:
+      - title: Preserve an existing BIOS guest
+        text: >
+          Assume the VMware VM boots using legacy BIOS and the operating system
+          was installed in that mode.
+        command: "qm config 102"
+        result: >
+          Keep the Proxmox VM on SeaBIOS for the initial migration. In the
+          Proxmox GUI the firmware setting is found under VM -> Options -> BIOS.
+          Do not convert the guest to UEFI merely because Proxmox also supports
+          UEFI.
+
+    notes:
+      - >
+        Hypervisor migration and firmware modernization are separate tasks.
+
+      - >
+        Preserving the existing firmware reduces the number of variables that
+        change during the first boot on Proxmox.
+
+      - >
+        A later BIOS-to-UEFI conversion can be evaluated independently after
+        the migrated VM is stable.
+
+    warnings:
+      - >
+        Changing from BIOS to UEFI may require changes to the partition layout,
+        boot loader and operating-system boot configuration.
+
+
+  efi_ovmf:
+    title: Preserve UEFI Firmware with OVMF
+    category: Firmware
+    phase: Migration
+
+    description: >
+      Preserve UEFI firmware when the VMware source VM is configured for EFI.
+      On Proxmox/KVM, OVMF provides the UEFI firmware implementation.
+
+    checks:
+      - description: Inspect the VMware firmware setting.
+        command: "grep -Ei '^firmware' <vm.vmx>"
+
+      - description: Inspect the resulting Proxmox VM configuration.
+        command: "qm config <VMID>"
+
+    examples:
+      - title: Preserve an existing UEFI guest
+        text: >
+          The VMware VMX contains firmware = efi. This means that the source
+          guest already expects to boot through UEFI.
+        command: "qm config 102"
+        result: >
+          Configure the Proxmox VM to use OVMF rather than SeaBIOS. In the
+          Proxmox GUI this is configured under VM -> Options -> BIOS. An EFI
+          disk is normally added to store UEFI variables. Preserving an
+          existing UEFI configuration is different from converting an existing
+          BIOS installation to UEFI.
+
+    notes:
+      - >
+        OVMF is the UEFI firmware implementation commonly used by QEMU/KVM and
+        Proxmox.
+
+      - >
+        The EFI disk stores UEFI variable data. It is not the guest operating
+        system disk.
+
+      - >
+        Preserve the source firmware mode first. Firmware modernization should
+        not be mixed into the initial hypervisor migration unless required.
+
+    warnings:
+      - >
+        Do not silently change an EFI source VM to legacy BIOS during migration.
+
+      - >
+        Secure Boot configuration must be evaluated separately from the basic
+        decision to use UEFI.
+
+
+  bios_to_uefi:
+    title: BIOS to UEFI Modernization
+    category: Firmware
+    phase: Modernization
+
+    description: >
+      Converting a guest from legacy BIOS to UEFI is a modernization task and
+      should normally be performed separately from the VMware-to-Proxmox
+      migration.
+
+    checks:
+      - description: Inspect the guest disk and partition layout.
+        command: "lsblk -f"
+
+      - description: Inspect the current firmware configuration on Proxmox.
+        command: "qm config <VMID>"
+
+    examples:
+      - title: Migration does not require firmware conversion
+        text: >
+          A VMware VM currently boots with legacy BIOS and migrates successfully
+          to Proxmox using SeaBIOS.
+        result: >
+          There is no requirement to convert it to UEFI merely because the
+          target hypervisor supports OVMF. First complete and validate the
+          hypervisor migration. BIOS-to-UEFI conversion can then be planned as
+          a separate change with its own rollback procedure.
+
+    notes:
+      - >
+        BIOS and UEFI use different firmware interfaces and may rely on
+        different boot-loader and partitioning arrangements.
+
+      - >
+        Separating migration from modernization makes troubleshooting easier:
+        if the VM fails to boot, fewer things have changed simultaneously.
+
+      - >
+        Preserve first, modernize later.
+
+    warnings:
+      - >
+        Do not assume that switching the Proxmox BIOS option from SeaBIOS to
+        OVMF is sufficient to convert an installed operating system from BIOS
+        boot to UEFI boot.
+
+
+  secure_boot:
+    title: Validate Secure Boot Configuration
+    category: Firmware
+    phase: Pre-Migration
+
+    description: >
+      Validate Secure Boot separately from the general UEFI configuration.
+      Secure Boot is a UEFI feature and depends on firmware, keys, boot loaders
+      and guest operating-system support.
+
+    checks:
+      - description: Inspect firmware and Secure Boot settings in the VMX.
+        command: "grep -Ei 'firmware|secureBoot' <vm.vmx>"
+
+      - description: Inspect the resulting Proxmox VM configuration.
+        command: "qm config <VMID>"
+
+    examples:
+      - title: EFI with Secure Boot enabled
+        text: >
+          The VMX contains firmware = efi and
+          efi.secureBoot.enabled = TRUE.
+        result: >
+          UEFI and Secure Boot are consistent with each other. Preserve UEFI
+          using OVMF and explicitly validate the target Secure Boot
+          configuration rather than assuming that the VMware setting transfers
+          automatically.
+
+      - title: BIOS combined with a Secure Boot setting
+        text: >
+          The VMX appears to describe legacy BIOS while also containing a
+          Secure Boot setting.
+        result: >
+          Treat this as configuration that requires investigation. Secure Boot
+          is an UEFI feature, so the two facts should not simply be translated
+          into a Proxmox configuration without verification.
+
+    notes:
+      - >
+        UEFI and Secure Boot are related but are not the same feature.
+
+      - >
+        A VM can use UEFI without Secure Boot.
+
+      - >
+        Source configuration can contain stale or contradictory settings.
+        The analyzer should expose such conditions rather than silently invent
+        a target configuration.
+
+    warnings:
+      - >
+        Do not enable or disable Secure Boot during migration without verifying
+        guest support and the source configuration.
+
+
+  # ---------------------------------------------------------------------------
+  # COMPUTE
+  # ---------------------------------------------------------------------------
+
+  proxmox_cpu:
+    title: Preserve CPU Allocation
+    category: Compute
+    phase: Migration
+
+    description: >
+      Preserve the source VM's CPU allocation unless reliable workload data
+      provides a reason to change it.
+
+    checks:
+      - description: Inspect the resulting Proxmox VM configuration.
+        command: "qm config <VMID>"
+
+    examples:
+      - title: Eight configured vCPUs do not mean eight required vCPUs
+        text: >
+          A VMX reports numvcpus = 8. This tells us that VMware presented eight
+          virtual CPUs to the guest.
+        result: >
+          It does not tell us whether the workload normally consumes 5 percent,
+          50 percent or 100 percent of those CPUs. Preserve eight vCPUs for the
+          migration and perform rightsizing later using runtime measurements.
+
+    notes:
+      - >
+        A VMX tells us how many virtual CPUs are configured. It does not tell us
+        how much CPU the workload actually requires.
+
+      - >
+        Configuration data is not performance data.
+
+      - >
+        Rightsizing requires runtime observations. numvcpus alone is not
+        sufficient evidence for optimization.
+
+      - >
+        Preserve first, optimize later. This provides a known baseline for
+        post-migration comparison.
+
+    warnings: []
+
+
+  proxmox_memory:
+    title: Preserve Memory Allocation
+    category: Compute
+    phase: Migration
+
+    description: >
+      Preserve the source VM's memory allocation unless reliable workload data
+      provides a reason to change it.
+
+    checks:
+      - description: Inspect host memory when troubleshooting the target.
+        command: "free -h"
+
+      - description: Observe memory, swap and system activity over time.
+        command: "vmstat"
+
+      - description: Inspect the resulting Proxmox VM configuration.
+        command: "qm config <VMID>"
+
+    examples:
+      - title: Configured memory is not memory demand
+        text: >
+          A VMX reports memSize = 16384. The guest therefore has 16384 MB,
+          approximately 16 GB, of configured RAM.
+        result: >
+          This does not prove that the workload needs 16 GB and it does not
+          prove that memory can safely be reduced. Preserve the allocation for
+          migration and use runtime data before making a rightsizing decision.
+
+    notes:
+      - >
+        memSize describes configured guest memory. It does not describe actual
+        workload memory consumption.
+
+      - >
+        free -h gives a host-level overview of memory and swap, while vmstat is
+        useful for observing memory pressure, paging and system activity over
+        time.
+
+      - >
+        Rightsizing cannot be derived reliably from the VMX alone.
+
+    warnings: []
+
+
+  # ---------------------------------------------------------------------------
+  # STORAGE
+  # ---------------------------------------------------------------------------
+
+  storage_controller:
+    title: Map the VMware Storage Controller
+    category: Storage
+    phase: Migration
+
+    description: >
+      VMware-specific paravirtualized storage controllers should be mapped to
+      an appropriate KVM/Proxmox controller.
+
+    checks:
+      - description: Review the VMware storage controller.
+        command: "grep -Ei 'scsi[0-9]+\\.virtualDev' <vm.vmx>"
+
+      - description: Inspect the resulting Proxmox storage configuration.
+        command: "qm config <VMID>"
+
+    examples:
+      - title: Replace PVSCSI with VirtIO SCSI
+        text: >
+          The VMware VMX contains scsi0.virtualDev = pvscsi. PVSCSI is a
+          VMware-specific paravirtualized SCSI controller.
+        command: "qm set 102 --scsihw virtio-scsi-single"
+        result: >
+          The Proxmox VM now uses VirtIO SCSI Single as its SCSI controller.
+          In the GUI this setting is found under VM -> Hardware -> SCSI
+          Controller. An imported disk must also be attached to an appropriate
+          SCSI slot such as scsi0. Verify that the guest has the required
+          VirtIO storage driver before depending on this controller for boot.
+
+    notes:
+      - >
+        PVSCSI is VMware's paravirtualized SCSI controller. It is not the
+        controller we normally want to retain on the KVM target.
+
+      - >
+        VirtIO provides paravirtualized devices for KVM/QEMU.
+        virtio-scsi-single is therefore a natural Proxmox target for many
+        VMware guests using PVSCSI.
+
+      - >
+        Changing both the hypervisor and virtual storage controller changes
+        what the guest sees. Driver availability must therefore be considered.
+
+      - >
+        Preserve the existing disk layout during migration first. Storage
+        optimization can be performed after successful boot.
+
+    warnings:
+      - >
+        A guest without the required target storage driver may fail to boot
+        after the controller is changed.
+
+
+  storage_missing_file:
+    title: Storage Device Without a Backing File
+    category: Storage
+    phase: Pre-Migration
+
+    description: >
+      The VMX declares a storage device as present, but no backing file was
+      identified. The device must be understood before the VM is migrated.
+
+    checks:
+      - description: Review storage-related VMX entries.
+        command: "grep -Ei 'scsi|sata|ide|nvme|fileName|deviceType' <vm.vmx>"
+
+    examples:
+      - title: Present device without fileName
+        text: >
+          The VMX contains sata0:0.present = TRUE but there is no corresponding
+          sata0:0.fileName entry.
+        result: >
+          Do not invent a disk image. The device could represent removable
+          media, an empty virtual CD/DVD device or another VMware configuration.
+          Identify its purpose in VMware before deciding whether an equivalent
+          device is needed under VM -> Hardware on Proxmox.
+
+    notes:
+      - >
+        A device marked as present does not necessarily represent a normal
+        virtual hard disk.
+
+      - >
+        The analyzer should not invent a backing file when none is present in
+        the VMX.
+
+      - >
+        Identify the purpose of the device before deciding whether it needs an
+        equivalent device on Proxmox.
+
+    warnings:
+      - >
+        Do not silently discard an unexplained storage device during migration.
+
+
+  vmdk_inspection:
+    title: Inspect a VMware VMDK
+    category: Storage
+    phase: Pre-Migration
+
+    description: >
+      Inspect a VMware VMDK before conversion or import. The VMX identifies
+      which VMDK is attached to the VM, but it does not provide enough
+      information to determine the complete structure of the virtual disk.
+
+    checks:
+      - description: Inspect VMDK metadata.
+        command: "qemu-img info <disk.vmdk>"
+
+      - description: Inspect the complete backing chain.
+        command: "qemu-img info --backing-chain <disk.vmdk>"
+
+      - description: Inspect relevant VMware descriptor fields.
+        command: "grep -E 'CID|parentCID|parentFileNameHint|RW' <disk.vmdk>"
+
+      - description: Inspect VMDK files and their sizes.
+        command: "ls -lh *.vmdk"
+
+    examples:
+      - title: Descriptor versus extent
+        text: >
+          A VMware directory contains a small prod-app01.vmdk file and a much
+          larger prod-app01-flat.vmdk file.
+        command: "ls -lh *.vmdk"
+        result: >
+          The small prod-app01.vmdk may be the descriptor containing metadata
+          and references, while prod-app01-flat.vmdk contains the actual disk
+          blocks. The small file is therefore not irrelevant. Do not simply
+          choose the largest VMDK as the migration input.
+
+      - title: Inspect before importing
+        text: >
+          The VMX references prod-app01-data.vmdk and the filename does not look
+          like a snapshot disk.
+        command: "qemu-img info --backing-chain prod-app01-data.vmdk"
+        result: >
+          Still inspect the image. A harmless-looking filename does not prove
+          that no backing relationship exists. The VMDK metadata is the
+          authoritative source for the image structure.
+
+    notes:
+      - >
+        Descriptor != Extent. A small VMDK descriptor describes the virtual
+        disk and references the file or files containing the actual disk data.
+
+      - >
+        The large data file is commonly called the extent.
+
+      - >
+        qemu-img info shows information such as image format, virtual size,
+        actual size and, where applicable, backing-file relationships.
+
+      - >
+        The VMX and VMDK answer different questions: the VMX identifies what is
+        attached to the VM, while VMDK metadata describes the image structure.
+
+    warnings:
+      - >
+        Do not convert or import a VMDK before checking whether it belongs to a
+        snapshot chain.
+
+
+  vmdk_backing_chain:
+    title: Inspect a VMware VMDK Backing Chain
+    category: Storage
+    phase: Pre-Migration
+
+    description: >
+      VMware snapshot disks may depend on one or more backing VMDK files. The
+      complete backing chain must be available and verified before converting
+      or importing the disk.
+
+    checks:
+      - description: Display the complete backing chain.
+        command: "qemu-img info --backing-chain <leaf.vmdk>"
+
+      - description: Inspect VMware descriptor metadata.
+        command: "grep -E 'CID|parentCID|parentFileNameHint|RW' <disk.vmdk>"
+
+      - description: Inspect image allocation and mapping if required.
+        command: "qemu-img map --output=json <leaf.vmdk>"
+
+    examples:
+      - title: Active snapshot leaf and parent images
+        text: >
+          The VMX references prod-app01-system-000003.vmdk. Its descriptor
+          points to prod-app01-system-000002.vmdk, which ultimately depends on
+          the base disk.
+        command: "qemu-img info --backing-chain prod-app01-system-000003.vmdk"
+        result: >
+          prod-app01-system-000003.vmdk is the active leaf representing the
+          current VM state. Its parents are still required to reconstruct that
+          state. Migration should use the active leaf while all required parent
+          images remain accessible.
+
+      - title: Snapshot-looking filename is only an indication
+        text: >
+          A file is named server-000003.vmdk.
+        result: >
+          The filename strongly suggests a VMware snapshot disk, but the name
+          alone does not prove a backing relationship. Verify the descriptor
+          and qemu-img backing-chain output before making the migration
+          decision.
+
+    notes:
+      - >
+        CID identifies a VMDK generation. parentCID identifies the expected
+        parent generation. parentFileNameHint points to the parent descriptor.
+
+      - >
+        The RW entry in a VMware descriptor describes an extent used by the
+        virtual disk.
+
+      - >
+        The active snapshot is the leaf of the chain.
+
+      - >
+        Do not select an arbitrary delta or base disk for conversion. Verify
+        the chain and migrate the image representing the current VM state.
+
+    warnings:
+      - >
+        An isolated snapshot VMDK may be unusable without its parent images.
+
+      - >
+        A broken CID/parentCID relationship can indicate an inconsistent
+        snapshot chain and must be investigated before migration.
+
+
+  vmdk_to_local_lvm:
+    title: Import a VMDK into Proxmox LVM-Thin Storage
+    category: Storage
+    phase: Migration
+
+    description: >
+      Import the verified VMware disk into Proxmox-managed LVM-thin storage.
+
+    checks:
+      - description: Show Proxmox storage configuration and status.
+        command: "pvesm status"
+
+      - description: Show the host block-device structure.
+        command: "lsblk"
+
+      - description: Inspect logical volumes and thin-pool allocation.
+        command: "lvs"
+
+      - description: Inspect the target VM configuration.
+        command: "qm config <VMID>"
+
+    examples:
+      - title: Import a verified VMDK into local-lvm
+        text: >
+          Assume VM 102 already exists on Proxmox and prod-app01.vmdk has been
+          verified as the correct migration source.
+        command: "qm importdisk 102 prod-app01.vmdk local-lvm"
+        result: >
+          Proxmox imports the image into the storage named local-lvm. On
+          LVM-thin this becomes a Proxmox-managed logical volume rather than a
+          qcow2 file in a normal directory. The imported volume may initially
+          appear under VM -> Hardware as an unused disk and must then be
+          attached to the intended virtual controller.
+
+      - title: Virtual size versus physical thin-pool allocation
+        text: >
+          Assume the VM owns a virtual disk with a size of 25 GB and lvs
+          reports Data% = 26.35 for the corresponding thin logical volume.
+        command: "25 GB x 26.35 % = approximately 6.6 GB"
+        result: >
+          The guest still sees a 25 GB virtual disk. Approximately 6.6 GB of
+          thin-pool data space is currently allocated for that logical volume.
+          Virtual disk capacity and current thin-pool consumption are therefore
+          different values.
+
+      - title: Why df and lvs can tell different stories
+        text: >
+          df -h shows plenty of free space on the Proxmox root filesystem, but
+          local-lvm is nearly full.
+        command: "df -h; lvs; pvesm status"
+        result: >
+          There is no contradiction. df reports mounted filesystem usage.
+          local-lvm is an LVM thin pool and its capacity is examined with tools
+          such as lvs and pvesm. Free space on the root filesystem does not
+          imply free capacity in the thin pool.
+
+    notes:
+      - >
+        lsblk shows the block-device structure: disks, partitions, logical
+        volumes and their relationships. It answers the question: what block
+        devices exist and how are they connected?
+
+      - >
+        df shows mounted filesystems and their filesystem usage. It does not
+        show the complete block-device or LVM structure.
+
+      - >
+        local-lvm is normally block storage managed by Proxmox. A VM disk
+        stored there is a logical volume, not a qcow2 file in a normal
+        directory.
+
+      - >
+        Always distinguish between host filesystem capacity, virtual disk
+        capacity and thin-pool allocation. They represent different layers.
+
+    warnings:
+      - >
+        Verify sufficient target thin-pool capacity before importing large
+        virtual disks.
+
+      - >
+        Do not use df alone to diagnose LVM-thin capacity problems.
+
+
+  # ---------------------------------------------------------------------------
+  # NETWORK
+  # ---------------------------------------------------------------------------
+
+  network_mapping:
+    title: Map VMware Networks to Proxmox
+    category: Network
+    phase: Pre-Migration
+
+    description: >
+      Map the VMware network or port-group configuration to the appropriate
+      Proxmox bridge and VLAN configuration.
+
+    checks:
+      - description: Inspect host interfaces and addresses.
+        command: "ip addr"
+
+      - description: Inspect routing.
+        command: "ip route"
+
+      - description: Inspect Linux bridge ports.
+        command: "bridge link"
+
+      - description: Inspect the bridge forwarding database.
+        command: "bridge fdb show br vmbr0"
+
+      - description: Inspect the Proxmox VM network configuration.
+        command: "qm config <VMID>"
+
+    examples:
+      - title: Map a VMware port group to a Proxmox VLAN
+        text: >
+          The VMX contains networkName = Production-VLAN42. The name strongly
+          suggests VLAN 42, but it is still only an administrative label.
+          Verify the VMware port-group configuration before using that VLAN ID
+          on Proxmox.
+        command: "qm set 102 --net0 virtio=00:0C:29:8A:31:7C,bridge=vmbr0,tag=42"
+        result: >
+          If the VMware port group is confirmed to use VLAN 42 and vmbr0 is
+          configured appropriately for VLAN-aware operation, the Proxmox NIC
+          can use tag=42. In the Proxmox GUI this corresponds to
+          VM -> Hardware -> Network Device -> VLAN Tag. Do not generate tag=42
+          solely from the string Production-VLAN42.
+
+      - title: Layer 2 versus Layer 3 troubleshooting
+        text: >
+          The migrated VM has no connectivity and the administrator wants to
+          know whether the problem is bridging or routing.
+        command: "bridge fdb show br vmbr0"
+        result: >
+          bridge fdb examines Layer-2 MAC forwarding on the bridge. ip route
+          answers the separate Layer-3 routing question. Use the tool that
+          matches the layer being investigated rather than treating bridge and
+          routing information as interchangeable.
+
+    notes:
+      - >
+        A VMware network name is a label. It may contain useful naming
+        conventions, but those conventions are not authoritative network
+        configuration.
+
+      - >
+        On Proxmox the administrator must identify the corresponding Linux
+        bridge and, where required, VLAN tag.
+
+      - >
+        A bridge operates at Layer 2. The bridge forwarding database maps
+        learned MAC addresses to bridge ports.
+
+      - >
+        Network mapping should be verified independently from guest IP
+        configuration.
+
+    warnings:
+      - >
+        An incorrect bridge or VLAN mapping can produce a VM that boots
+        successfully but has no network connectivity.
+
+
+  network_adapter:
+    title: Replace VMXNET3 with VirtIO
+    category: Network
+    phase: Migration
+
+    description: >
+      Replace VMware's VMXNET3 paravirtualized network adapter with a
+      KVM-native VirtIO network adapter.
+
+    checks:
+      - description: Inspect VMware virtual NIC configuration.
+        command: "grep -Ei 'ethernet[0-9]+\\.(virtualDev|address|addressType|networkName)' <vm.vmx>"
+
+      - description: Inspect interfaces inside the migrated Linux guest.
+        command: "ip link"
+
+      - description: Inspect the Proxmox virtual NIC.
+        command: "qm config <VMID>"
+
+    examples:
+      - title: VM boots but networking is unavailable
+        text: >
+          VMware presented the NIC as VMXNET3 and the Linux guest used interface
+          ens160. After migration Proxmox presents a VirtIO NIC and Linux
+          detects it as ens18.
+        command: "ip link"
+        result: >
+          If ens18 exists but the guest network configuration still refers to
+          ens160, the Proxmox bridge may be completely correct while the guest
+          remains unreachable. Inspect the guest configuration used by Netplan,
+          systemd-networkd or NetworkManager and update the interface mapping
+          as required. The Proxmox NIC itself can be inspected under
+          VM -> Hardware -> Network Device or with qm config <VMID>.
+
+    notes:
+      - >
+        VMXNET3 is VMware's paravirtualized network adapter. VirtIO provides
+        the corresponding high-performance paravirtualized interface in
+        KVM/QEMU environments.
+
+      - >
+        The guest may see the VirtIO NIC as a different interface from the
+        original VMware adapter.
+
+      - >
+        A correctly configured Proxmox NIC does not guarantee that the guest
+        operating system is using the new interface correctly.
+
+    warnings:
+      - >
+        Ensure that the guest operating system has a suitable VirtIO network
+        driver before relying on the new adapter.
+
+
+  preserve_mac:
+    title: Preserve a Static MAC Address
+    category: Network
+    phase: Migration
+
+    description: >
+      Preserve an explicitly configured VMware MAC address where maintaining
+      network identity is desirable.
+
+    checks:
+      - description: Inspect guest and host interface addresses.
+        command: "ip link"
+
+      - description: Inspect neighbour information when troubleshooting.
+        command: "ip neigh"
+
+      - description: Inspect the bridge forwarding database.
+        command: "bridge fdb show br vmbr0"
+
+      - description: Inspect the Proxmox VM NIC configuration.
+        command: "qm config <VMID>"
+
+    examples:
+      - title: Preserve the VMware MAC on the Proxmox NIC
+        text: >
+          VMware uses the static MAC address 00:0c:29:8a:31:7c and DHCP,
+          firewall or monitoring configuration depends on that address.
+        command: "qm set 102 --net0 virtio=00:0C:29:8A:31:7C,bridge=vmbr0"
+        result: >
+          The Proxmox VirtIO NIC now preserves the existing MAC identity. In
+          the GUI the MAC address is configured under
+          VM -> Hardware -> Network Device.
+
+      - title: Source and target use the same MAC simultaneously
+        text: >
+          The VMware source VM and migrated Proxmox VM are both active on the
+          same Layer-2 network using MAC 00:0c:29:8a:31:7c.
+        command: "bridge fdb show br vmbr0"
+        result: >
+          Bridges or physical switches may repeatedly learn the same MAC on
+          different ports. Connectivity can become intermittent as the
+          forwarding entry moves between those ports. Shut down or isolate the
+          source before bringing the migrated VM online with the preserved MAC.
+
+    notes:
+      - >
+        Preserving the MAC can reduce changes to DHCP reservations, firewall
+        rules, monitoring systems and other MAC-dependent configuration.
+
+      - >
+        A MAC address is a Layer-2 identity. An IP address belongs to Layer 3.
+        They solve different addressing problems.
+
+      - >
+        Duplicate IP addresses and duplicate MAC addresses are different
+        problems, although both can cause confusing connectivity symptoms.
+
+    warnings:
+      - >
+        Do not run source and target simultaneously on the same Layer-2 network
+        with an identical MAC address.
+
+
+  # ---------------------------------------------------------------------------
+  # GUEST INTEGRATION
+  # ---------------------------------------------------------------------------
+
+  remove_vmware_tools:
+    title: Check and Remove VMware Tools
+    category: Guest Integration
+    phase: Post-Migration
+
+    description: >
+      Check whether VMware Tools are installed in the guest and remove them
+      after the migrated VM has been successfully validated.
+
+    checks:
+      - description: Check for open-vm-tools on Debian or Ubuntu.
+        command: "dpkg -l | grep -i open-vm-tools"
+
+      - description: Check running VMware-related services or processes.
+        command: "ps aux | grep -i vmware"
+
+    examples:
+      - title: VMX settings do not prove that the package is installed
+        text: >
+          The VMX contains tools.syncTime = TRUE and
+          tools.upgrade.policy = manual.
+        result: >
+          These entries prove that VMware Tools-related VM configuration
+          existed. They do not prove that open-vm-tools or another VMware Tools
+          package is currently installed inside the guest. Inspect the guest
+          package state before removing anything.
+
+      - title: Remove VMware guest integration after validation
+        text: >
+          The migrated VM boots correctly on Proxmox, VirtIO devices work and
+          the QEMU Guest Agent has been installed and verified.
+        command: "apt purge open-vm-tools"
+        result: >
+          On a Debian or Ubuntu guest where open-vm-tools is actually installed
+          and no longer required, it can now be removed as a deliberate
+          post-migration action. Package names and removal procedures differ
+          between operating systems.
+
+    notes:
+      - >
+        VM configuration and guest package state are different sources of
+        information.
+
+      - >
+        Removal should be a post-migration action. First prove that the VM
+        boots and operates correctly on Proxmox.
+
+      - >
+        Install and verify the QEMU Guest Agent before removing VMware guest
+        integration where appropriate.
+
+    warnings:
+      - >
+        Do not blindly purge packages solely because VMware Tools-related keys
+        exist in the VMX.
+
+
+  qemu_guest_agent:
+    title: Install and Enable the QEMU Guest Agent
+    category: Guest Integration
+    phase: Post-Migration
+
+    description: >
+      Install the QEMU Guest Agent inside the migrated guest and enable
+      guest-agent support in the Proxmox VM configuration.
+
+    checks:
+      - description: Check the guest-agent service inside a systemd Linux guest.
+        command: "systemctl status qemu-guest-agent"
+
+      - description: Inspect whether agent support is enabled in Proxmox.
+        command: "qm config <VMID>"
+
+    examples:
+      - title: Install the guest agent on Debian or Ubuntu
+        text: >
+          The migrated Debian or Ubuntu guest boots successfully on Proxmox and
+          is ready for Proxmox guest integration.
+        command: "apt install qemu-guest-agent && systemctl enable --now qemu-guest-agent"
+        result: >
+          This installs and starts the agent inside the guest. Proxmox
+          guest-agent support is a separate VM setting and can be enabled under
+          VM -> Options -> QEMU Guest Agent or with
+          qm set <VMID> --agent enabled=1. Both sides are required: the guest
+          service and the Proxmox VM configuration.
+
+      - title: Agent package installed but Proxmox cannot use it
+        text: >
+          qemu-guest-agent is running inside the guest, but agent support is not
+          enabled in the Proxmox VM configuration.
+        command: "qm set 102 --agent enabled=1"
+        result: >
+          Installing the package inside the guest alone is not the complete
+          configuration. Enable the VM-side agent setting as well and then
+          verify communication.
+
+    notes:
+      - >
+        The QEMU Guest Agent runs inside the guest operating system and
+        communicates with QEMU/Proxmox through a dedicated virtual channel.
+
+      - >
+        Guest-agent functionality is conceptually separate from VirtIO storage
+        and network drivers.
+
+      - >
+        The guest agent provides useful guest integration after migration and
+        replaces relevant VMware-specific integration functions.
+
+    warnings:
+      - >
+        Do not assume that installing the package automatically enables the
+        corresponding Proxmox VM setting.
+
+
+  # ---------------------------------------------------------------------------
+  # DEVICES
+  # ---------------------------------------------------------------------------
+
+  usb_passthrough:
+    title: Validate USB Requirements
+    category: Devices
+    phase: Pre-Migration
+
+    description: >
+      Determine whether USB support in the VMware configuration represents an
+      actual workload dependency.
+
+    checks:
+      - description: Inspect USB-related VMX entries.
+        command: "grep -Ei '^usb|usb.*present' <vm.vmx>"
+
+      - description: Inspect USB devices inside a Linux guest if relevant.
+        command: "lsusb"
+
+    examples:
+      - title: USB capability without a USB dependency
+        text: >
+          The VMX contains usb.present = TRUE, but the workload does not depend
+          on a physical USB device.
+        result: >
+          No host USB passthrough needs to be created merely because a virtual
+          USB controller existed in VMware. Capability does not imply workload
+          dependency.
+
+      - title: Workload really depends on a physical USB device
+        text: >
+          The guest uses a physical USB license dongle or another device that
+          must remain available after migration.
+        command: "lsusb"
+        result: >
+          Identify the physical device explicitly and plan Proxmox USB
+          passthrough for that device. The corresponding device is configured
+          under VM -> Hardware -> Add -> USB Device. This is a different case
+          from merely finding usb.present = TRUE in the VMX.
+
+    notes:
+      - >
+        usb.present = TRUE indicates that USB support is enabled for the VM. It
+        does not prove that a physical USB device is attached or required.
+
+      - >
+        The analyzer should distinguish capability from dependency.
+
+      - >
+        If a physical USB device is required, identify it explicitly before
+        migration and plan the target passthrough configuration.
+
+    warnings:
+      - >
+        Do not configure host USB passthrough solely because usb.present is TRUE
+        in the VMX.
+

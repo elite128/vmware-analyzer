@@ -1,0 +1,14 @@
+analysis:
+  analyze_all: true
+
+migration:
+  target: proxmox
+  preferred_storage: local-lvm 
+  preferred_disk_bus: scsi
+  preferred_controller: virtio-scsi-single
+  preferred_nic: virtio
+
+
+output:
+  format: html
+  directory: output 
