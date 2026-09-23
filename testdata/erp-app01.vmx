@@ -1,0 +1,35 @@
+.encoding = "UTF-8"
+config.version = "8"
+virtualHW.version = "19"
+
+displayName = "erp-app01"
+guestOS = "ubuntu-64"
+
+numvcpus = "4"
+memSize = "8192"
+
+firmware = "efi"
+
+scsi0.present = "TRUE"
+scsi0.virtualDev = "pvscsi"
+
+scsi0:0.present = "TRUE"
+scsi0:0.fileName = "erp-app01-000002.vmdk"
+
+scsi0:1.present = "TRUE"
+scsi0:1.fileName = "erp-app01-data.vmdk"
+
+ethernet0.present = "TRUE"
+ethernet0.virtualDev = "vmxnet3"
+ethernet0.networkName = "Server-Network"
+ethernet0.addressType = "static"
+ethernet0.address = "00:50:56:9A:21:37"
+
+tools.syncTime = "TRUE"
+tools.upgrade.policy = "upgradeAtPowerCycle"
+
+usb.present = "TRUE"
+
+sound.present = "FALSE"
+
+annotation = "ERP application server - production"
